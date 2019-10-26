@@ -1,9 +1,10 @@
 ---
-title: "Data Science Projects (Still under construction)"
-author: "Author: Zhihao (Daniel) Huang"
+title: "Data Science Projects"
+author: "Author: Yueqi Liu"
 output:
-  html_document:
-    theme: flatly
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
     toc: yes
 csl: ecology.csl
 ---
@@ -12,16 +13,16 @@ csl: ecology.csl
 
 ## About me
 
-* I am Zhihao, a second year master student of statistics at the University of Michigan, Ann Arbor. Prior to that, I got my bachelor's degree in the School of Mathematical Science at Nankai University. [Want to know more? Here is my CV](Zhihao_Huang_Resume.pdf). 
+* I am Yueqi, practitioner and lover for data science. Currently I am a statistician at a pharmaceutical consulting firm. Prior to that, I got my master's degree in Statistics at the University of Connecticut. [Want to know more? Here is my CV](Resume.pdf). 
 
-* My exertises can be summarized with three words:   
+* My expertises can be summarized with three words:   
 1. **Statistics**: I use statistical theories to build models for data-oriented problems.
-2. **Programming**: I obtain data solutions with programming.
-3. **Understanding**: I help people understand outcomes with appropriate presentations. 
+2. **Programming**: I obtain data solutions with efficient programming.
+3. **Understanding**: I help people understand outcomes with appropriate explanations and presentations. 
 
 * Contact information:
-    + Phone: (+1) 734-263-5854
-    + E-mail: zhhhwang@umich.edu 
+    + Phone: (+1) 860-931-9870
+    + E-mail: yueqi.liu@uconn.edu 
     
 ## About this website
 
@@ -35,18 +36,15 @@ This website is a repository of my past / ongoing data science projects. They co
 
 2. [Random Forest on Titanic Data]()
 
-3. [Unsupervised Feature Selection with Mixture of Noise and Missing Data]()
+3. [Insurance Policies - Early Cancellation Prediction]()
 
-4. [Telematics Data Mining]()
-
-5. [Sales Data Visualization Platorm]()
-
-6. [Impact of Underwriter Touch on Sales]()
 
 ## Ongoing Projects
 
 1. [Handwritting Digit Recognotion]()
 
 2. [New York City Taxi Fee Prediction]()
+
+3. [R shiny dashboard - Can you survive if you were onboard Titanic in 1912?]()
 
 
