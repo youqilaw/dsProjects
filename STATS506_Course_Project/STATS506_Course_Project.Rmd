@@ -1,0 +1,456 @@
+---
+title: 'Logistic Regression in R, Stata and Python'
+author: "Shunji Wei, Zhihao Huang, Yuhan Li (Group 15)"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(knitr)
+set.seed(123)
+```
+
+## Algorithm Description
+
+The purpose of this tutorial is to demonstrate logistic regression in Stata, R and Python. The following is a brief summary of the logistic regression. 
+
+We have a binary output variable $Y$ , and we want to model the conditional probability $Pr(Y = 1|X = x)$ as a function of $x$; any unknown parameters in the function are to be estimated by maximum likelihood. By now, it will not surprise you to learn that statisticians have approach this problem by asking themselves “how can we use linear regression to solve this?”    
+
+The easiest modification which has an unbounded range is the logistic (or logit) transformation
+\[
+  \operatorname{log}\frac{p}{1-p} .
+\]
+We can make this a linear function of $x$ without fear of nonsensical results. (Of course the results could still
+happen to be wrong, but they’re not guaranteed to be wrong.)    
+
+Formally, the logistic regression model is that
+\[
+    \operatorname{log}\frac{p(x)}{1-p(x)} = \beta_{0} + \sum_{i=1}^{n} \beta_{i}X_{i}
+\]
+Solving for $p$, this gives
+\[
+  p(x) = \frac{e^{\beta_{0} + \sum_{i=1}^{n} \beta_{i}X_{i}}}{1+e^{\beta_{0} + \sum_{i=1}^{n} \beta_{i}X_{i}}} = \frac{1}{1+e^{-(\beta_{0} + \sum_{i=1}^{n} \beta_{i}X_{i})}}
+\]
+Notice that the over-all specification is a lot easier to grasp in terms of the transformed probability that in terms of the untransformed probability.
+ 
+## Data Summary
+
+The sinking of RMS Titanic is a huge tragedy, killing 1502 out of 2224 passengers and crew. One of the reasons that the shipwreck led to such loss of life was that there were not enough lifeboats for the passengers and crew. Although there was some element of luck involved in surviving the sinking, some groups of people were more likely to survive than others, such as women, children, and the upper-class.     
+
+<center>
+<div style="width:300px; height=200px">
+![The sinking Titanic](Titanic.jpg)
+</div>
+</center>
+
+We obtain the passengers record from [here](https://www.kaggle.com/c/titanic). In the dataset, 891 passengers are included in the dataset. In addition to the passenger number and survival status, there are other ten relative variables. Their description are listed as follow.
+
+```{r, echo=F, warning=F}
+Variable <- c("Survival", "Pclass", "Name", "Sex", "Age", "SibSp", "Parch", "Ticket", "Fare", "Cabin", "Embark")
+Description <- c("Corresponding passenger survived or not. 1 represents yes, and 0 represents no.", "The cabin class of the corresponding passenger.", "Name of the passenger.", "Gender of the passenger.", "Age of the passenger.", "# of siblings / spouses aboard.", "# of parents / children aboard.", "Ticket number.", "Ticket fare.", "Cabin number of the passenger.", "Port of Embarkation")
+Data_Type <- c("Categorical. 0/1", "Categorical. 1/2/3", "String.", "Categorical. male/female", "Positive Integer.", "Non-negative integer.", "String", "Positive real number.", "String", "Categorical. S/C/Q")
+temp <- as.data.frame(cbind(Variable, Description, Data_Type))
+kable(temp)
+```
+
+Our task is to figure out who is more likely to survive this tragedy based on their personal information. The logistic regression is carried out to handle this challenge. 
+
+# {.tabset}
+
+## R
+
+### Steps
+#### i) Loading data
+
+This dataset has a binary response variable 'Survived'(1 for survival, 0 for death). Based on the data types and experience, we choose 'Pclass', 'Sex', 'Age', 'SibSp', 'Parch' and 'Fare' as predictors. We treat 'Pclass' and 'Sex' as categorical factors and others as continuous. 'Pclass' takes on values 1, 2 and 3 where class 1 represents the highest rank of cabin and 3 represents the lowest rank.
+
+```{r }
+### R ### 
+# Loading data
+titanic = read.csv('~/Downloads/Titanic_train.csv')
+# View the first few rows of data
+head(titanic)[,c(1:3,5:8,10)]
+```
+
+### ii) Obtaining Summary Statistics
+#### 1.Data Summary
+
+For simplicity, we change ‘male’ of sex to 1, ‘female’ to 0. We can get basic descriptives for the entire data set by using summary.
+
+```{r }
+### R ###
+# Redefine Sex: 'male' as 1 and 'female' as 0
+titanic$Sex = (titanic$Sex=='male')*1
+
+# Subset the data including the columns we want
+titanic_sub = subset(titanic,select = c(Survived,Pclass, Sex, 
+                                        Age, SibSp, Parch, Fare))
+# Summary data
+summary(titanic_sub)
+```
+
+#### 2. Two-way Contingency Table 
+
+Two-way contingency table can give us a basic relationship between the response and some predictor directly. For example, we tabulate 'survived' and 'Pcalss' to show the impact of cabin class on the probability of survival. From the table, we can roughly conclude that the odds ratio of survival is larger when the cabin class is higher.
+
+```{r }
+### R ###
+# 2-way contingency table 
+xtabs(~Survived + Pclass, data = titanic_sub)
+```
+
+#### 3.Missing Values and Training/Testing Sets
+
+Missing values appear frequently when we deal with big datasets. There are many different ways to fix this problem, such as deleting or imputing the missing value. Here we replace the missing values in 'Age' by the average age.
+
+Separating testing set from the original dataset is a common way to evaluate the goodness of fit. The ratio of the number of training data and testing data is usually 8:2 or 9:1. Here, we leave the first 90% data as training data and the last 10% of data as testing data.
+
+```{r }
+### R ###
+# Replace NAs in Age by the average age
+titanic_sub$Age[is.na(titanic_sub$Age)] = mean(titanic_sub$Age
+                                               [!is.na(titanic_sub$Age)])
+# Define the training set and testing set
+train_set = titanic_sub[1:802,]
+test_set = titanic_sub[803:891,]
+```
+
+### iii) Logistic Model
+#### 1. Fitting Model, Summary and Interpretation.
+
+Before fitting the logistic model, we need to define categorical variables (Pclass and Sex). In order to get the detailed fitting result, we use the summary command.
+
+```{r }
+### R ###
+# set the class of Pclass and Sex as factor
+train_set$Pclass = as.factor(train_set$Pclass)
+train_set$Sex = as.factor(train_set$Sex)
+
+# fit the logistic model
+logit_fit = glm(Survived ~ ., data = train_set, family = "binomial")
+
+# Summary the output
+summary(logit_fit)
+```
+
+The first step to interpret the output is testing the goodness of the model based on the deviance. The residual deviance tells us the intuitive distance between the current model and the saturated model. Because the p-value of the residual deviance is 0.98 ( following appropriately $\chi^{2}(n-p)$), the logistic model is not statistically different from the saturated model. Then, we see that the difference between the null deviance and residual deviance is huge, which means the current model is significantly better than the null model. Hence, the current logistic model fits the data well.
+
+Above the deviance, we can gain the estimated coefficients, standard error, z-value (Wald z-statistic) and its corresponding p-values. From the p-value, we conclude that the Pclass, Sex, Age and Sibsp are statistically significant, while Parch and Fare are not. 
+
+The estimated coefficients indicate the change in the log odds of the response when the predictors change a one unit. For example, the log odds of survival decreases by 0.037 when the Age increases a one unit. The difference of the log odds of survival is 0.954 between class 1 and class 2, 2.113 between class 1 and class 3 which agrees with the outcomes of two-way contingency table. 
+
+Below the deviance, AIC is computed which can be used for model selection (the lower AIC is, the better model fits). In addition, we can obtain confidence intervals for the coefficient estimates that is based on the standard error and the normal assumption.
+
+```{r }
+# compute the confidence intervals of coefficients
+ci = confint.default(logit_fit); ci
+```
+
+#### 2. Prediction and Error Rate 
+
+Based on the fitted model, now we can predict the survival probability of the testing data. The predicted survival probability is between 0 and 1, hence we regard it as survival when p > 0.5, and as not survival when p <= 0.5. 
+
+Compared to the true survival situation, we compute the error rate (the probability of making mistakes) which is approximately 0.18. Not a bad performance! 
+
+```{r }
+### R ###
+# Prediction on the test set
+test_set$Pclass = as.factor(test_set$Pclass)
+test_set$Sex = as.factor(test_set$Sex)
+
+surv_prob = predict(logit_fit, newdata = test_set, type = 'response')
+head(surv_prob)
+
+# The error rate 
+mean(round(surv_prob)!=test_set$Survived)
+```
+
+### Summary
+
+To sum up, we can see that the performance of logistic regression is not bad. The logistic regression is the simplest method to handle 0-1 classification problems;  and we can easily perform it on R, Stata and Python. But the interpretation of the results is complicated, due to the non-linear relationship between the response and predictors. However, when it comes to more complicated scenario, some more advanced tools should be used instead, like Probit regression.
+
+## Stata
+
+### Steps
+#### i) Loading data
+
+We start with loading data and present the first 5 observations. 
+ 
+```{r, eval=FALSE}
+* Importing data
+clear
+import delimited Titanic_train.csv
+list if passengerid <= 5
+```
+
+<center>
+<div style="width:900px; height=700px">
+![First 5 observations](stata_head.JPG)
+</div>
+</center>
+
+### ii) Obtaining Summary Statistics
+#### 1.Data Summary
+
+This dataset has a binary response *Survived* (1 for survived, 0 for not survived). Based on the data types and inference, we choose *Pclass*, *Sex*, *Age*, *SibSp*, *Parch* and *Fare* as predictors. *Pclass* and *Sex* are treated as categorical predictors, and others as continuous. Specifically, *Pclass* takes integer values from 1 to 3 as the highest rank cabin to the lowest rank cabin. For simplicity with the variable *sex*, 'male' are changed to 1, and 'female' are changed to 0.       
+
+After these procedures, the following shows a summary table of the predictors.         
+
+```{r eval=FALSE}
+* Change sex to numeric value
+gen gender = 1 if sex == "male"
+replace gender = 0 if sex == "female"
+
+* Select potential variables
+drop name cabin embarked sex ticket
+
+* Summarize data
+summarize pclass i.gender age sibsp parch far
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Variable Summary](stata_data_summary.JPG)
+</div>
+</center>
+
+#### 2. Two-way Contingency Table 
+
+Two-way contingency table can give us a basic relationship between the response and some predictors directly. Here we tabulate *Survived* and *Pcalss*, showing the distribution of survival status within each cabin class. From the table, we can roughly conclude that the odds of survival is larger when the cabin class is higher.
+
+```{r eval=FALSE}
+* Contingency Table
+tab survived pclass
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Two way contingency Table](stata_contingency_table.JPG)
+</div>
+</center>
+
+#### 3.Missing Values and Training/Testing Sets
+
+Missing values appear frequently when we deal with big datasets. There are many different ways to fix this problems. Here, for example, we replace the missing values in *Age* by the average of age.
+
+In order to evaluate our model, we have to divide the dataset into training part the testing part. The ratio of these two parts is usually 8:2 or 9:1. Here, we choose the one with ratio 9:1, giving us 802 training samples and 89 testing samples. 
+
+```{r eval=FALSE}
+* Deal with missing value in variable age
+egen ave_age = mean(age)
+replace age = ave_age if missing(age)
+drop ave_age
+
+* Setting indicator for 
+gen training = 1 if passengerid < 803
+replace training = 0 if passengerid > 802
+```
+
+### iii) Logistic Model
+#### 1. Fitting Model, Summary and Interpretation.
+
+Before fitting the logistic model, we need to define categorical variables (Pclass and Sex). In Stata, a variable is converted to categorical predictors by adding 'i.' before the predictors. Then the *logit* command will automatically considered this variable as categorical. The *logit* command will also present the regression summary as soon as task finishes. 
+
+```{r eval=FALSE}
+* Fitting Model
+logit survived i.pclass i.gender age sibsp parch fare if training == 1
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Regression](stata_regression.JPG)
+</div>
+</center>
+
+In the output above, we can obtain the estimated coefficients, standard error, z-value (Wald z-statistic) and its corresponding p-values and the confidence interval. By calculating the residual deviance, whose distribution is $\chi^{2}(n-p)$, from the log likelihood by $\operatorname{Residual Deviance} = -2 \operatorname{Log Likelihood} = 712.05$, the p-value is $0.98$. It means that our model has no statistical difference from the saturated model. And the p-value for the test between our model and null model is $0$, meaning that our model is statistically different from the null model that has no predictor. Therefore, we can conclude that our model is satisfying. Also, we can tell that *Pclass*, *Sex*, *Age* and *Sibsp* are statistically significant, while *Parch* and *Fare* are not.
+
+The estimated coefficients indicates the change in the log odds of the response when the predictors change a one unit. For example, the log odds of survival decreases by 0.037 when the Age increases a one unit. The difference of the log odds of survival is 0.954 between class 1 and class 2, 2.113 between class 1 and class 3 which agrees with the outcomes of two-way contingency table. 
+
+#### 2. Prediction and Error Rate 
+
+Based on the fitted model, now we can predict the survival probability on the testing data. The predicted survival probability is between 0 and 1, hence we regard it as survived when p $>$ 0.5, and as not survived when p $\leq$ 0.5. 
+
+Compared to the true survival status, we compute the error rate (the probability of making mistakes) which is approximately 0.18. Not a bad performance! 
+
+```{r eval=FALSE}
+* Prediction
+predict psurvived if training == 0
+
+* Testing Error
+gen prediction = 1 if psurvived > 0.5 & passengerid > 802
+replace prediction = 0 if psurvived <= 0.5 & passengerid > 802
+
+* Error Rate
+gen error = prediction != survived
+mean error if passengerid > 802
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Error Rate](stata_error_rate.JPG)
+</div>
+</center>
+
+### Summary
+
+To sum up, we can see that the performance of logistic regression is not bad. The logistic regression is the simplest method to handle 0-1 classification problems;  and we can easily perform it on R, Stata and Python. But the interpretation of the results is complicated, due to the non-linear relationship between the response and predictors. However, when it comes to more complicated scenario, some more advanced tools should be used instead, like Probit regression.
+
+## Python
+
+### Steps
+#### i) Loading data
+
+This dataset has a binary response variable 'Survived'(1 for survival, 0 for death). Based on the data types and experience, we choose 'Pclass', 'Sex', 'Age', 'SibSp', 'Parch' and 'Fare' as predictors. We treat 'Pclass' and 'Sex' as categorical factors and others as continuous. 'Pclass' takes on values 1, 2 and 3 where class 1 represents the highest rank of cabin and 3 represents the lowest rank. 
+
+We start with loading data and select out the variables we will use. And present the first 5 observations.
+
+```{python, eval=FALSE}
+### Python ###
+# Library packages
+import panda as pd
+import statsmodels.api as sm
+# Read data
+tdata = pd.read_csv('Titanic_train.csv')
+# get the subdata we need to use
+pdpre = tdata.iloc[:,[1,2,4,5,6,7,9]]
+# present the head
+pdpre.head()
+```
+
+<center>
+<div style="width:900px; height=700px">
+![First 5 observations](python_head.JPG)
+</div>
+</center>
+
+### ii) Obtaining Summary Statistics
+#### 1.Data Summary
+
+For simplicity, we change ‘male’ of sex to 1, ‘female’ to 0. We can get basic descriptives for the entire data set by using summary.
+
+```{python, eval=FALSE}
+### Python ###
+# change ‘male’ to 1, ‘female’ to 0
+def sex_to_numeric(x):
+    if x == 'male':
+        return 1
+    if x=='female':
+        return 0
+pdpre['Sex'] = pdpre['Sex'].apply(sex_to_numeric)
+
+# Summary
+sumy = pdpre.iloc[:,1:].describe(include='all')
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Variable Summary](python_data_summary.JPG)
+</div>
+</center>
+
+#### 2. Two-way Contingency Table 
+
+Two-way contingency table can give us a basic relationship between the response and some predictor directly. For example, we tabulate 'survived' and 'Pcalss' to show the impact of cabin class on the probability of survival. From the table, we can roughly conclude that the odds ratio of survival is larger when the cabin class is higher.
+
+```{python eval=FALSE}
+### Python ###
+#Two-way contingency table
+pd.crosstab(pdpre['Survived'], pdpre['Pclass'], margins=True)
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Two way contingency Table](python_contingency_table.JPG)
+</div>
+</center>
+
+#### 3.Missing Values and Training/Testing Sets
+
+Missing values appear frequently when we deal with big datasets. There are many different ways to fix this problems. For example here, we replace the missing values in 'Age' by the average age.
+
+Before fitting the logistic model, we also need to define categorical variables (Pclass and Sex).
+
+Separating testing set from the original dataset is a common way to evaluate the goodness of fit. The ratio of the number of training data and testing data is usually 8:2 or 9:1. Here, we leave the first 90% data as training data and the last 10% of data as testing data.
+
+```{python eval=FALSE}
+### Python ###
+# Filling missing value
+pdpre["Age"].fillna(pdpre["Age"].mean(), inplace=True)
+
+# Transfer categorical variables to dummy variables
+pc = pd.get_dummies(pdpre['Pclass'], prefix='Pclass')
+sx = pd.get_dummies(pdpre['Sex'], prefix='Sex')
+cols_to_keep = ['Survived', 'Age', 'SibSp', 'Parch', 'Fare']
+df_temp = pdpre[cols_to_keep].join(pc.loc[: , 'Pclass_2' : ])
+df = df_temp.join(sx['Sex_1'])
+
+# Divide to training and test data
+train = df.iloc[ : 802, : ]
+test = df.iloc[802 : , : ]
+train_y = train['Survived']
+train_x = train.iloc[ : , 1 : ]
+test_y = test['Survived']
+test_x = test.iloc[ : , 1 : ]
+```
+
+### iii) Logistic Model
+#### 1. Fitting Model, Summary and Interpretation.
+
+Fitting the logistic model. In order to get the detailed fitting result, we use the summary command.
+
+```{python eval=FALSE}
+### Python ###
+# Fitting model
+train_x['intercept'] = 1.0
+logit = sm.Logit(train_y, train_x)
+result = logit.fit()
+result.summary()
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Regression](python_regression.JPG)
+</div>
+</center>
+
+In the output above, we can gain the estimated coefficients, standard error, confidence interval of coefficients, z-value (Wald z-statistic) and its corresponding p-values. Pclass_2, Pclass_3, Sex_1, Age and Sibsp are statistically significant, while Parch and Fare are not. 
+
+The estimated coefficients indicates the change in the log odds of the response when the predictors change a one unit. For example, the log odds of survival decreases by 0.037 when the Age increases a one unit. The difference of the log odds of survival is 0.954 between class 1 and class 2, 2.113 between class 1 and class 3 which agrees with the outcomes of two-way contingency table. 
+
+#### 2. Prediction and Error Rate 
+
+Based on the fitted model, now we can predict the survival probability of the testing data. The predicted survival probability is between 0 and 1, hence we regard it as survival when p > 0.5, and as not survival when p <= 0.5. 
+
+Compared to the true survival situation, we compute the error rate (the probability of making mistakes) which is approximately 0.18. Not a bad performance! 
+
+```{python eval=FALSE}
+### Python ###
+# Predict
+test_x['intercept'] = 1.0
+pred = result.predict(test_x)
+pred[pred > 0.5] = 1
+pred[pred <= 0.5] = 0
+test_err = 1 - (test_y == pred).mean()
+print("test error rate: " + str(test_err))
+```
+
+<center>
+<div style="width:900px; height=500px">
+![Error Rate](python_error_rate.JPG)
+</div>
+</center>
+
+### Summary
+
+To sum up, we can see that the performance of logistic regression is not bad. The logistic regression is the simplest method to handle 0-1 classification problems;  and we can easily perform it on R, Stata and Python. But the interpretation of the results is complicated, due to the non-linear relationship between the response and predictors. However, when it comes to more complicated scenario, some more advanced tools should be used instead, like Probit regression.
+
+## References
+
+Institute for Digital Research and Education, UCLA. LOGIT REGRESSION | R DATA ANALYSIS EXAMPLES. 2017-12-4.
+
+Hosmer, D. & Lemeshow, S. (2000). Applied Logistic Regression (Second Edition). New York: John Wiley & Sons, Inc.
+
+Long, J. Scott (1997). Regression Models for Categorical and Limited Dependent Variables. Thousand Oaks, CA: Sage Publications.

@@ -1,0 +1,52 @@
+---
+title: "Data Science Projects (Still under construction)"
+author: "Author: Zhihao (Daniel) Huang"
+output:
+  html_document:
+    theme: flatly
+    toc: yes
+csl: ecology.csl
+---
+
+--------------
+
+## About me
+
+* I am Zhihao, a second year master student of statistics at the University of Michigan, Ann Arbor. Prior to that, I got my bachelor's degree in the School of Mathematical Science at Nankai University. [Want to know more? Here is my CV](Zhihao_Huang_Resume.pdf). 
+
+* My exertises can be summarized with three words:   
+1. **Statistics**: I use statistical theories to build models for data-oriented problems.
+2. **Programming**: I obtain data solutions with programming.
+3. **Understanding**: I help people understand outcomes with appropriate presentations. 
+
+* Contact information:
+    + Phone: (+1) 734-263-5854
+    + E-mail: zhhhwang@umich.edu 
+    
+## About this website
+
+This website is a repository of my past / ongoing data science projects. They come from different backgrounds, including internships, academia and Kaggle competition. Some may come with a comprehensive analysis, while some may be in a form of description due to the confidentiality of the data and results.       
+
+----------
+
+## Project Lists
+
+1. [Logistics Regression on Titanic Data (Course Projects)](STATS506_Course_Project/STATS506_Group_Project.html). [(Code)](STATS506_Course_Project/STATS506_Course_Project.Rmd)
+
+2. [Random Forest on Titanic Data]()
+
+3. [Unsupervised Feature Selection with Mixture of Noise and Missing Data]()
+
+4. [Telematics Data Mining]()
+
+5. [Sales Data Visualization Platorm]()
+
+6. [Impact of Underwriter Touch on Sales]()
+
+## Ongoing Projects
+
+1. [Handwritting Digit Recognotion]()
+
+2. [New York City Taxi Fee Prediction]()
+
+

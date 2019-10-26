@@ -1,0 +1,53 @@
+---
+title: "Unsupervised Feature Selection"
+author: "Zhihao Huang"
+date: "1/16/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(R.matlab)
+library(plotly)
+```
+
+# Model Summary and Motivations
+
+Unsupervised feature selection is a very popular approach to machine learning problems. It aims to select important features from the entire dataset, while not lossing most of the information. It is a trade-off between bias and variance. Feature selection techniques are used for four reasons:
+
+1. Simplification of models to make them easier to interpret
+2. Shorter training times
+3. To avoid the curse of dimensionality
+4. Enhanced generalization by reducing overfitting (formally, reduction of variance)
+
+There are many existing methods for unsupervised feature selection, Principle Component Analysis (PCA) for example. Here we proposed a new model, integrating some previous techniques, for scenarioes of missing value and mixture of noise. 
+
+Problem is set to following:  
+\[
+  \operatorname{min_{U,V}}\Vert W\odot (X-UV^{T})\Vert_{F}^{2} + \lambda \Vert V \Vert_{2,1}
+\]
+\[
+  w.r.t \quad U^{T}U=I_{r}
+\]
+Where $W \in \mathbb{R}^{N*D}$, $X \in \mathbb{R}^{N*D}$, $U \in \mathbb{R}^{N*r}$ and $V \in \mathbb{R}^{D*r}$. And $\lambda$ is the feature selection parameter, $N$ is the sample number, $d$ is the feature number and $r$ is the rank number. Without loss of generality, we set
+
+
+```{r}
+data <- readMat("/Users/Daniel_Huang/Google Drive/Personal_Projects/Unsupervised_Feature_Selection/warpAR10P_10e-2.mat")
+face <- data$result
+```
+
+```{r}
+p <- plot_ly(z = face[nrow(face):1,], type = "heatmap") %>%
+layout(autosize = F, width = 500, height = 500)
+p
+```
+
+
+
+```{r, echo=FALSE}
+
+```
+
+
