@@ -1,5 +1,5 @@
 ---
-title: "Data Science Projects (Testing)"
+title: "Data Science Projects"
 author: "Author: Yueqi Liu"
 output:
   prettydoc::html_pretty:
@@ -32,19 +32,9 @@ This website is a repository of my past / ongoing data science projects. They co
 
 ## Project Lists
 
-1. [Random Forest on Titanic Data (Course Projects)](Predictive_Model_on_Titanic/Titanic.html). [(Code)](Predictive_Model_on_Titanic/Titanic.Rmd)
+1. [Random Forest on Titanic Data](Predictive_Model_on_Titanic/Titanic.html). [(Code)](Predictive_Model_on_Titanic/Titanic.Rmd)
 
 2. [Random Forest on Titanic Data]()
 
-3. [Insurance Policies - Early Cancellation Prediction]()
-
-
-## Ongoing Projects
-
-1. [Handwritting Digit Recognotion]()
-
-2. [New York City Taxi Fee Prediction]()
-
-3. [R shiny dashboard - Can you survive if you were onboard Titanic in 1912?]()
-
+3. [xgBoost: New York City Taxi Fare Prediction](Predictive_Model NYC Taxi/NY_Taxi.html).
 

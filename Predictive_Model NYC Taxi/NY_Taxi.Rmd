@@ -1,0 +1,230 @@
+---
+title: "Kaggle - New York Taxi Fare Prediction (top 30% with xgBoost)"
+author: "Yueqi Liu"
+date: "08/20/2018"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(eval = F, include = T)
+```
+
+
+# Project Description
+
+In this project, we build predictive models for New York Taxi Fare Data. From this project, we learned how to handle large datasets and solve the real-world problem. There are several improvement in this project.       
+
+1. Create parallel computing to handle time consuming tasks, including cross validation and xgBoost parallel.      
+
+2. Create reasonable features to help to improve accuracy, including weather, airport location (Note that NYC will charge an additional $15 for pick-up/drop-off at any of its airport).       
+
+3. Implement xgBoost to conduct prediction. **The baseline prediction MSE is 9.32 and our model is 3.2, ranking top 30% at kaggle competition.** 
+
+<center>
+<div style="width:800px; height=500px">
+![Taxi Fare at NYC](header.png)
+</div>
+</center>
+
+# Data Summary
+
+The original data is very simplified, including only a few features. Specifically,
+
+* Taxi pick up time      
+* Taxi pick-up/drop-off location in GPS logitude and latitude      
+* Number of passanger(s) in the taxi       
+
+Additional feature are created to improve the predictions. Please see the following sections to review the process.    
+
+# 0. Package and Programming Setting
+
+The following packages are loaded. As some of the parallel computing are setup in the AWS, the following code specify whether to use AWS clusters to run the parallel computing. 
+
+```{r package}
+# Loading the library
+library(data.table)
+library(xgboost)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(doParallel)
+
+# Programming Settings
+localRunning <- F
+doValidation <- F
+doPrediction <- T
+parallelIndicator <- F
+
+# Pre-running variables
+feature <- c("passenger_count", "weekday", "miles", "monthFrame", 
+             "yearFrame", "timeFrame", "pickupToJFK", "pickupToLGA", 
+             "pickupToEWR", "dropoffToJFK", "dropoffToLGA", "dropoffToEWR", 
+             "PRCP", "SNOW", "SNWD", "TMAX") 
+label <- c("fare_amount")
+folds <- 5
+
+# Const for xgboost
+maxDepth <- 10
+threadNum <- detectCores() - 1
+roundNum <- 40000 
+presentResult <- 1
+coreToUse <- detectCores() - 1
+```
+
+# 1. Data Processing 
+
+In order to improve the performance of the model, we create additional features. 
+
+1. **Weather information**. We are able to obtain the weather information when the taxi picked up the customer. Usually when the weather condition is terrible, more charge will occur.       
+2. **Airport information**. The New York City will charge additional fee when pick-up/drop-off customers at the airport. There are three major airports at New York City, EWR, LGA and JFK. If the pick-up/drop-off location is within a certain distance near the airport, fares may be highter.     
+3. **Manhattan boundry information**. If the pick-up/drop-off location go through the Manhattan boundry, additional charges may apply to the tunnel fee.     
+
+```{r process, echo = TRUE}
+# Const
+earthR <- 3958.7631
+maxPassenger <- 6
+halfCircleDegree <- 180
+jfk_coor_long <- (-73.7860 * pi)/halfCircleDegree
+jfk_coor_lati <- (40.6459 * pi)/halfCircleDegree
+lga_coor_long <- (-73.8686 * pi)/halfCircleDegree
+lga_coor_lati <- (40.7721 * pi)/halfCircleDegree
+ewr_coor_long <- (-74.1807 * pi)/halfCircleDegree
+ewr_coor_lati <- (40.6917 * pi)/halfCircleDegree
+nycLongLwr <- -74.30
+nycLongUpp <- -72.90
+nycLatiLwr <- 40.5
+nycLatiUpp <- 42
+
+# Funciton in calculating the haversine distance between two gps coordinates
+GPSdistance <- function(coor1_longitude, coor1_latitude, coor2_longitude, coor2_latitude){
+  longD <- coor2_longitude - coor1_longitude
+  latiD <- coor2_latitude - coor1_latitude
+  haverSine <- sin(latiD / 2) * sin(latiD / 2) + cos(coor1_latitude) * cos(coor2_latitude) * sin(longD / 2) * sin(longD / 2)
+  haverAngle <- asin(sqrt(haverSine))
+  distance <- 2 * earthR * haverAngle
+  return(distance)
+}
+
+# Training set preprocessing
+train <- train %>% separate(pickup_datetime, into = c("DATE", "time", "zone"), sep = " ") %>% 
+  select(-key, -zone) %>%
+  filter(!(pickup_longitude == 0 | pickup_latitude == 0 | dropoff_latitude == 0 | dropoff_longitude == 0)) %>% filter(passenger_count <= maxPassenger) %>% 
+  filter(pickup_longitude > nycLongLwr & pickup_longitude < nycLongUpp & pickup_latitude > nycLatiLwr & pickup_latitude < nycLatiUpp) %>%
+  filter(dropoff_longitude > nycLongLwr & dropoff_longitude < nycLongUpp & dropoff_latitude > nycLatiLwr & dropoff_latitude < nycLatiUpp) %>%
+  filter(fare_amount > 0) %>%
+  mutate(pickup_longitude = (pickup_longitude * pi) / halfCircleDegree, 
+         pickup_latitude = (pickup_latitude * pi) / halfCircleDegree,
+         dropoff_longitude = (dropoff_longitude * pi) / halfCircleDegree, 
+         dropoff_latitude = (dropoff_latitude * pi) / halfCircleDegree) %>%
+  mutate(weekday = weekdays(as.Date(DATE))) %>% 
+  mutate(miles = GPSdistance(pickup_longitude, pickup_latitude, dropoff_longitude, dropoff_latitude)) %>%
+  mutate(timeFrame = substr(time, 1, 2)) %>% mutate(timeFrame = as.numeric(timeFrame)) %>%
+  mutate(yearFrame = substr(DATE, 1, 4)) %>% mutate(yearFrame = as.numeric(yearFrame)) %>%
+  mutate(monthFrame = substr(DATE, 6, 7)) %>% mutate(monthFrame = as.numeric(monthFrame)) %>% 
+  mutate(pickupToJFK = (GPSdistance(pickup_longitude, pickup_latitude, jfk_coor_long, jfk_coor_lati))) %>%
+  mutate(pickupToLGA = (GPSdistance(pickup_longitude, pickup_latitude, lga_coor_long, lga_coor_lati))) %>%
+  mutate(pickupToEWR = (GPSdistance(pickup_longitude, pickup_latitude, ewr_coor_long, ewr_coor_lati))) %>%
+  mutate(dropoffToJFK = (GPSdistance(dropoff_longitude, dropoff_latitude, jfk_coor_long, jfk_coor_lati))) %>%
+  mutate(dropoffToLGA = (GPSdistance(dropoff_longitude, dropoff_latitude, lga_coor_long, lga_coor_lati))) %>%
+  mutate(dropoffToEWR = (GPSdistance(dropoff_longitude, dropoff_latitude, ewr_coor_long, ewr_coor_lati)))
+
+# Include weather information
+nycWeather <- nycWeather %>% select(DATE, PRCP, SNOW, SNWD, TMAX)
+
+train <- merge(train, nycWeather, by = "DATE")
+train <- train[complete.cases(train), ]
+```
+  
+
+#2. xgBoost Model and cross validation
+
+In this section, user specifies whether to do cross validation to check the performance of the xgBoost model. All the options/parameters are specified in the previous section.     
+
+For fast computation, we implement parallel computing with `doParallel`. The cross validation and xgBoost will be run with parallel computing.    
+
+
+```{r xgb}
+if(doValidation){
+  
+  # Setting up cross validation index
+  train$cvIndex <- ceiling(sample(1:nrow(train), nrow(train)) / (nrow(train) / folds))
+  
+  # cross validation
+  rmse <- rep(NA, folds)
+  
+  if(!parallelIndicator){
+    for(i in 1:folds){
+      training <- train[train$cvIndex != i, ] 
+      testing <- train[train$cvIndex == i, ] 
+      
+      # Fitting the model
+      xgbModel <- xgboost(data = model.matrix(~ . + 0, training[, feature]), 
+                          label = as.matrix(training[, label]), 
+                          max.depth = maxDepth, 
+                          nrounds = roundNum, 
+                          nthread = threadNum, 
+                          verbose = presentResult)
+      
+      # Prediction and evaluate result
+      predictions <- predict(xgbModel, model.matrix(~ . + 0, testing[, feature]))
+      rmse[i] <- sqrt(mean((predictions - testing$fare_amount)^2))
+      print(i)
+    }
+  } else{
+    cl <- makeCluster(coreToUse)
+    registerDoParallel(cl)
+    rmse <- foreach(i = 1:folds,
+                    .packages = 'xgboost') %dopar% {
+                      training <- train[train$cvIndex != i, ] 
+                      testing <- train[train$cvIndex == i, ] 
+                      
+                      # Fitting the model
+                      xgbModel <- xgboost(data = model.matrix(~ . + 0, training[, feature]), 
+                                          label = as.matrix(training[, label]), 
+                                          max.depth = maxDepth, 
+                                          nrounds = roundNum, 
+                                          nthread = threadNum, 
+                                          verbose = presentResult)
+                      
+                      # Prediction and evaluate result
+                      predictions <- predict(xgbModel, model.matrix(~ . + 0, testing[, feature]))
+                      sqrt(mean((predictions - testing$fare_amount)^2))
+                    }
+    stopCluster(cl)
+    unlist(rmse)
+  }
+  
+  # Calculate the MSE and output results
+  mean(unlist(rmse))
+  write.table(rmse, "outputRMSE.txt")
+}
+```
+
+# 3. Prediction & Result
+
+Finally, with the trained model, we used it to predict the test set on Kaggle. **We obtain a MSE of 3.27 through kaggle, ranking the top 30% worldwide.**
+
+```{r predict}
+if(doPrediction){
+  xgbModel <- xgboost(data = model.matrix(~ . + 0, train[, feature]), label = as.matrix(train[, label]), 
+                      max.depth = maxDepth, nrounds = roundNum, nthread = threadNum, verbose = presentResult)
+  
+  fare_amount <- predict(xgbModel, model.matrix(~ . + 0, test[, feature]))
+  test <- cbind(test, fare_amount) %>% select(key, fare_amount)
+  write.table(test, "submission.csv")
+}
+```
+
+<center>
+<div style="width:800px; height=500px">
+![Kaggle Submission Result](submission.png)
+</div>
+</center>
+
+```{r output, eval = TRUE, warning = FALSE, message = FALSE}
+library(data.table)
+t <- fread("outputRMSE.txt")
+t
+```
