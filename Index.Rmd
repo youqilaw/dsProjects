@@ -32,7 +32,7 @@ This website is a repository of my past / ongoing data science projects. They co
 
 ## Project Lists
 
-1. [Logistics Regression on Titanic Data (Course Projects)](STATS506_Course_Project/STATS506_Group_Project.html). [(Code)](STATS506_Course_Project/STATS506_Course_Project.Rmd)
+1. [Random Forest on Titanic Data (Course Projects)](Predictive_Model_on_Titanic/Titanic.html). [(Code)](Predictive_Model_on_Titanic/Titanic.Rmd)
 
 2. [Random Forest on Titanic Data]()
 
