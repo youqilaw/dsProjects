@@ -34,7 +34,7 @@ This website is a repository of my past / ongoing data science projects. They co
 
 1. [Random Forest on Titanic Data](Predictive_Model_on_Titanic/Titanic.html). [(Code)](Predictive_Model_on_Titanic/Titanic.Rmd)
 
-2. [Random Forest on Titanic Data]()
+2. [Can you survive if you were onboard Titanic? (Shiny)](https://youqilaw.shinyapps.io/titanic/)
 
 3. [xgBoost: New York City Taxi Fare Prediction](Predictive_Model NYC Taxi/NY_Taxi.html).
 
