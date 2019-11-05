@@ -32,19 +32,9 @@ This website is a repository of my past / ongoing data science projects. They co
 
 ## Project Lists
 
-1. [Logistics Regression on Titanic Data (Course Projects)](STATS506_Course_Project/STATS506_Group_Project.html). [(Code)](STATS506_Course_Project/STATS506_Course_Project.Rmd)
+1. [Random Forest on Titanic Data](Predictive_Model_on_Titanic/Titanic.html). [(Code)](Predictive_Model_on_Titanic/Titanic.Rmd)
 
 2. [Random Forest on Titanic Data]()
 
-3. [Insurance Policies - Early Cancellation Prediction]()
-
-
-## Ongoing Projects
-
-1. [Handwritting Digit Recognotion]()
-
-2. [New York City Taxi Fee Prediction]()
-
-3. [R shiny dashboard - Can you survive if you were onboard Titanic in 1912?]()
-
+3. [xgBoost: New York City Taxi Fare Prediction](Predictive_Model NYC Taxi/NY_Taxi.html).
 

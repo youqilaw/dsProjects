@@ -1,0 +1,462 @@
+---
+title: "Titanic - Data Analysis"
+author: "Yueqi Liu"
+date: "10/27/2019"
+---
+
+# Project Description
+
+In this project, we build predictive models for Titanic Data. From the course project, we learn that a simple logistic regression without cross validation yields an unconvincing reseult. So, we make several changes compared with the previous model. 
+
+1. Handle missing value in a different way. It is potential that the replacement of average is a good approach, we will try to use other method to deal with this problem. 
+
+2. Use cross validation to check the reliability of the model. The involvement of missing value make it different from the common approach of cross validation.
+
+3. Try different predictive model. In this project, we try to use logistic regression and random forest to accomplish prediction tasks. 
+
+## Data Summary
+
+The sinking of RMS Titanic is a huge tragedy, killing 1502 out of 2224 passengers and crew. One of the reasons that the shipwreck led to such loss of life was that there were not enough lifeboats for the passengers and crew. Although there was some element of luck involved in surviving the sinking, some groups of people were more likely to survive than others, such as women, children, and the upper-class.     
+
+<center>
+<div style="width:300px; height=200px">
+![The sinking Titanic](Titanic.jpg)
+</div>
+</center>
+
+We obtain the passengers record from [here](https://www.kaggle.com/c/titanic). In the dataset, 891 passengers are included in the dataset. In addition to the passenger number and survival status, there are other ten relative variables. Their description are listed as follow.
+ 
+# 1. Package 
+
+The following libraries are included.   
+
+```{r library, echo = TRUE, warning = FALSE, message = FALSE}
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(stringr)
+library(ROCR)
+library(randomForest)
+library(xgboost)
+library(VIM)
+library(mice)
+library(MASS)
+library(glmnet)
+library(pdp)
+library(vip)
+```
+
+# 2. Data Maipulation and Feature Engineering
+
+Load training dataset and convert all character variables into factors.
+
+```{r load, echo = TRUE}
+originData <- fread("~/Desktop/train.csv")
+Training <- originData %>%
+  mutate_if(sapply(originData,is.character), as.factor) %>%
+  mutate(Name = as.character(Name))
+```
+
+Convert integer variable into factors, convert empty values into NA, created two new variables: cabinGrp and title of each passenger based on original variables: cabin and name and deleted unuseful variables: Ticket and Cabin.
+
+Specifically, we created variable Title by extracting the title information of passengers from their names in order to better explore whether passengers with different titles will have different survival probabilities.
+
+```{r feature, echo=FALSE}
+tempFunc <- function(string){
+  result <- regmatches(string, regexec(', (.*?)\\.', string))[[1]][2]
+  return(result)
+}
+
+Training <- Training %>% 
+  mutate(cabinGrp = substring(gsub("[^a-zA-Z]", "", Cabin ), 1, 1),
+         cabinGrp = replace(cabinGrp, cabinGrp == "", "Missing"),
+         cabinGrp = as.factor(cabinGrp),  
+         Survived = as.factor(Survived),
+         Pclass = as.factor(Pclass),
+         Embarkedc = as.character(Embarked),
+         Embarked =  as.factor(ifelse(Embarkedc == "", NA, Embarkedc)), 
+         title = apply(as.matrix(Name), 1, tempFunc)
+         ) %>%
+  mutate(title = ifelse(title %in% c("Mrs", "Miss", "Mr", "Master"), title, "Other")) %>% 
+  mutate(title = as.factor(title)) %>% 
+  dplyr::select(-Ticket,
+         -Cabin)
+```
+
+Check and impute missing values of both continuous and categorical variables using mice() function. The first plot shows that there are missing values in variable Age and Embarked, after the imputation, the second plot shows that, in the imputed data, there is no missing value in any of the variables. 
+
+```{r check, echo = TRUE, message = FALSE, warning = FALSE, fig.align = "center"}
+aggr_plot <- aggr(Training, 
+                  col = c('navyblue','red'), 
+                  numbers = TRUE, 
+                  sortVars = TRUE, 
+                  labels = names(Training), 
+                  cex.axis = .7, 
+                  gap = 3, 
+                  ylab = c("Histogram of missing data","Pattern"))
+```
+
+```{r impute, echo = TRUE, message = FALSE, warning = FALSE}
+imputed_Data1 <- mice(data = Training, 
+                     m = 5, 
+                     meth = 'pmm', 
+                     maxit = 50, 
+                     seed = 500,
+                     printFlag = FALSE)
+```
+
+```{r impute2, echo = FALSE, message = FALSE, warning = FALSE}
+imputed_Data2 <- mice(data = complete(imputed_Data1, 2), 
+                      m = 5, 
+                      meth = 'polyreg', 
+                      maxit = 50, 
+                      seed = 500,
+                      printFlag = FALSE)
+
+completeTraining <- complete(imputed_Data2, 2)
+completeTraining <- completeTraining %>% dplyr::select(-Embarkedc)
+``` 
+
+```{r check2, echo = FALSE, fig.align = "center"}
+aggr_plot1 <- aggr(completeTraining, 
+                  col = c('navyblue','red'), 
+                  numbers = TRUE, 
+                  sortVars = TRUE, 
+                  labels = names(Training), 
+                  cex.axis = .7, 
+                  gap = 3, 
+                  ylab = c("Histogram of missing data","Pattern"),
+                  printFlag = F)
+```
+
+Then, we move on to check the relationship between the Survive reponse and some variables straightforwardly with histograms.
+Firstly, from the histogram of Age versus Survived, we find that survived rates of passengers with the age under 18 or above 75 are higher than other passengers.
+
+```{r plot1, echo=FALSE, fig.align = "center"}
+p_Age <- ggplot(completeTraining, aes(x = Age, fill = Survived)) +
+  geom_histogram(binwidth = 6) +
+  scale_fill_discrete(name = "Survived")
+p_Age
+```
+
+From the histogram of Fare vesus Survived, we find that passengers who paid higher fare have higher survival rates.
+
+```{r plot2, echo=FALSE, fig.align = "center"}
+p_Fare <- ggplot(completeTraining, aes(x = Fare, fill = Survived)) +
+  geom_histogram(binwidth = 12) +
+  scale_fill_discrete(name = "Survived")
+p_Fare
+```
+
+Similarly to Fare variable, the histogram of Pclass (Ticket Class) versus Survived shows that passengers with higher level tickets have higher survival rates than those with lower level tickets.
+
+```{r plot3, echo=FALSE, fig.align = "center"}
+p_Class <- ggplot(completeTraining, aes(x = Pclass, fill = Survived)) +
+  geom_bar(stat = "count") +
+  scale_fill_discrete(name = "Survived")
+p_Class
+```
+
+The following histogram of Sex versus Survived shows obvious trend that females have higher survival rates than males.
+
+```{r plot4, echo=FALSE, fig.align = "center"}
+p_Sex <- ggplot(completeTraining, aes(x = Sex, fill = Survived)) +
+  geom_bar(stat = "count")+
+  scale_fill_discrete(name = "Survived")
+p_Sex
+```
+
+From the histogram of Embarked versus Survived, we can tell a little difference of survival rates between different levels of Embarked, but the difference is not obvious. We can keep this variable to explore further later.
+
+```{r plot5, echo=FALSE, fig.align = "center"}
+p_Emb <- ggplot(completeTraining, aes(x = Embarked, fill = Survived)) +
+  geom_bar(stat = "count") +
+  scale_fill_discrete(name = "Survived")
+p_Emb
+```
+
+Because the information of Cabin Group is incomplete, we still need to explore further about this variable later.
+
+```{r plot6, echo=FALSE, fig.align = "center"}
+p_Cab <- ggplot(completeTraining, aes(x = cabinGrp, fill = Survived)) +
+  geom_bar(stat = "count")+
+  scale_fill_discrete(name = "Survived")
+p_Cab
+```
+
+The histogram of Title versus Survived obviously shows that survival rates of passengers varies with their titles.
+
+```{r plot7, echo=FALSE, fig.align = "center"}
+p_Tit <- ggplot(completeTraining, aes(x = title, fill = Survived)) +
+  geom_bar(stat = "count")+
+  scale_fill_discrete(name = "Survived")
+p_Tit
+```
+
+# 3. First Model: Logistic Regression
+
+We firstly try to the most common model: logistic regression.
+
+```{r glm, echo=FALSE}
+ 
+set.seed(877)
+trainIndex <- sample(c(1:nrow(completeTraining)), 600)
+
+trainingSet <- completeTraining %>% filter(row_number() %in% trainIndex) 
+testingSet <- completeTraining %>% filter(!(row_number() %in% trainIndex), cabinGrp != "T") 
+
+model_logit <- glm(Survived ~ ., data = trainingSet %>% dplyr::select(-PassengerId,-Name), family = binomial)
+summary(model_logit)
+
+result <- 1 * predict(model_logit, testingSet %>% dplyr::select(-Survived)) > 0.5
+sum((result + 1 == as.numeric(testingSet$Survived))) / length(result)
+```
+Then we used cross validation to validate the model. Also, through stepwise feature selection, we fitted reduced logistic model to control the model complexity and keep important variables in the model. The accuracy of the final reduced model is 0.835.
+
+```{r glmcv, echo = FALSE}
+## Cross validation ##
+folds <- 10
+set.seed(437)
+
+# Random shuffling
+completeTraining <- completeTraining[sample(c(1:nrow(completeTraining)), nrow(completeTraining)), ] 
+completeTraining <- completeTraining %>% mutate(foldIndex = ceiling(row_number() / (nrow(completeTraining) / folds)))
+
+validation <- rep(0, folds)
+threshold <- 0.36
+
+for(i in c(1:folds)){
+  trainingSet <- completeTraining %>% filter(foldIndex != i) %>% dplyr::select(-PassengerId, -foldIndex, -Name, -cabinGrp)
+  testingSet <- completeTraining %>% filter(foldIndex == i, cabinGrp != "T") %>% dplyr::select(-PassengerId, -foldIndex,-Name, -cabinGrp)
+  
+  cv_model_logit <- glm(Survived ~ ., 
+                data = trainingSet, 
+                family = binomial)
+  cv_model_logit_reduced <- cv_model_logit %>% stepAIC(trace = FALSE, direction = "backward")
+  result <- 1 * predict(cv_model_logit_reduced, testingSet %>% dplyr::select(-Survived)) > threshold
+  
+  # Modified for probability threshold
+  validation[i] <- sum((result + 1 == as.numeric(testingSet$Survived))) / length(result)
+}
+mean(validation)
+
+```
+
+
+
+# 4. Second Model: Elastic Net Regression  
+
+We then turned to try the Elastic Net Regression in order to keep only important variables and prevent collinearity problem that might happen when we fit the logsitic regression. After the cross validation and parameter tuning (chose the best value for alpha and lambda), we got the accuracy equals to 0.781. 
+
+```{r glmnet, echo = FALSE}
+
+## Cross validation ##
+folds <- 10
+set.seed(237)
+
+# Random shuffling
+completeTraining <- completeTraining[sample(c(1:nrow(completeTraining)), nrow(completeTraining)), ] 
+completeTraining <- completeTraining %>% mutate(foldIndex = ceiling(row_number() / (nrow(completeTraining) / folds)))
+
+seqAlahpa <- seq(0, 1, 0.01)
+validationMean <- rep(0, length(seqAlahpa))
+
+
+threshold <- 0.36
+
+for(j in c(1:length(seqAlahpa))){
+ 
+  validation    <- rep(0, folds)
+  for(i in c(1:folds)){
+  trainingSet <- completeTraining %>% filter(foldIndex != i) %>% dplyr::select(-PassengerId, -foldIndex, -Name )
+  testingSet <- completeTraining %>% filter(foldIndex == i, cabinGrp != "T") %>% dplyr::select(-PassengerId, -foldIndex, -Name)
+  
+  # note: parameter tuning : 0<alpha<1
+   lambda=cv.glmnet(x = data.matrix(trainingSet %>% 
+                                   mutate(Survived = as.numeric(Survived)) %>% 
+                                   dplyr::select(-Survived), rownames.force = NA),
+                    y = data.matrix(trainingSet %>% mutate(Survived = as.numeric(Survived)) %>%                                                            dplyr::select(Survived))
+                    )$lambda.1se
+   
+   model_elas <- glmnet(y = data.matrix(trainingSet %>% mutate(Survived = as.numeric(Survived)) %>%                                                            dplyr::select(Survived), rownames.force = NA), 
+                        x = data.matrix(trainingSet %>%  mutate(Survived = as.numeric(Survived)) %>% 
+                                                        dplyr::select(-Survived), rownames.force = NA),                         family = c("binomial"),
+                        alpha = seqAlahpa[j],
+                        lambda = lambda)
+    
+    result <- predict(model_elas, data.matrix(testingSet %>% dplyr::select(-Survived)), s = lambda, type = "response") > threshold
+    
+    
+    # Modified for probability threshold
+    validation[i] <- sum((result + 1 == as.numeric(testingSet$Survived))) / length(result)
+  }
+validationMean[j] <- mean(validation)
+}
+validationMax <- max(validationMean)
+validationMax
+```
+
+Also from the list of coefficient estimations, we can easily find the relationship between the survival probabiliy and passengers' information in different aspects. Coefficients for variable Parch and Fare have been shrinked to zero and reduced from the model. 
+
+Therefore, from the estimations, we find:
+
+the higher the ticket class, the greater of the survival probability, younger passengers have higher probability to survive, passengers who take their spouses or siblings have are more likely to survive.
+
+```{r glmnet_result, echo = FALSE, warning = FALSE}
+coef(model_elas)
+```
+
+
+
+
+# 5. Third model: Random Forest
+We implemented a random forest and calculated the score on the train set. As showing below, the accuracy value is 0.859 and we also got a list of variable importance.
+
+```{r rf, echo=FALSE}
+set.seed(777)
+trainIndex <- sample(c(1:nrow(completeTraining)), 700)
+
+trainingSet <- completeTraining %>% filter(row_number() %in% trainIndex) 
+testingSet <- completeTraining %>% filter(!(row_number() %in% trainIndex)) 
+
+
+model_rf <- randomForest(x = trainingSet %>% dplyr::select(-Survived, -PassengerId, -Name), 
+                      y = trainingSet$Survived,
+                      ntree = 700,
+                      mtry = 8,
+                      nodesize = 1,
+                      maxnodes = 10,
+                      importance = TRUE)
+ 
+result <- 1 * predict(model_rf, testingSet %>% dplyr::select(-Survived, -PassengerId, -Name), type = 'prob')[, 2] > 0.5
+sum((result + 1 == as.numeric(testingSet$Survived))) / length(result)
+importance(model_rf, type = 1)
+ 
+```
+
+However, in order to make full use of the training data to train and test model and prevent overfitting problem, we moved on to cross validation process and worked out the mean accuracy of all validations to ensure the performance of the model. Also, we tried different threshold for the predicted survival probability, if the prediction is larger than the threshold, then the predicted survived level = 1, or it equals 0. Then, we find when threshold is around 0.5, we can get the best model performance. After the ten-folds cross validation, we got the accuracy of this predictive model equals 0.825.
+
+In addition, through the random forest model, we got the variable importance of each variable. It shows that the ticket class (Pclass), Age, Fare, Cabin Group and Titles of passengers are relatively important to the Survived response, which means they have greater predictive power.
+
+```{r rfcv, echo=FALSE}
+## Cross validation ##
+folds <- 10
+set.seed(837)
+
+# Random shuffling
+completeTraining <- completeTraining[sample(c(1:nrow(completeTraining)), nrow(completeTraining)), ] 
+completeTraining <- completeTraining %>% mutate(foldIndex = ceiling(row_number() / (nrow(completeTraining) / folds)))
+
+validation <- rep(0, folds)
+threshold <- 0.5
+
+for(i in c(1:folds)){
+  trainingSet <- completeTraining %>% filter(foldIndex != i) %>% dplyr::select(-PassengerId, -foldIndex, -Name)
+  testingSet <- completeTraining %>% filter(foldIndex == i) %>% dplyr::select(-PassengerId, -foldIndex, -Name)
+  
+  cv_model_rf <- randomForest(x = trainingSet %>% dplyr::select(-Survived), 
+                        y = trainingSet$Survived,
+                        ntree = 700,
+                        mtry = 6,
+                        nodesize = 1,
+                        maxnodes = 10,
+                        importance = TRUE)  
+  
+  result <- 1 * predict(cv_model_rf, testingSet %>% dplyr::select(-Survived), type = 'prob')[, 2] > threshold
+   
+  # Modified for probability threshold
+  validation[i] <- sum((result + 1 == as.numeric(testingSet$Survived))) / length(result)
+}
+importance(cv_model_rf, type = 1)
+mean(validation)
+```
+
+With the variable importance, we tried a reduced random forest model after deleting two variables with less importantce.
+
+```{r rfcv2, echo=FALSE, fig.align = "center"}
+## Cross validation ##
+folds <- 10
+set.seed(837)
+
+# Random shuffling
+completeTraining <- completeTraining[sample(c(1:nrow(completeTraining)), nrow(completeTraining)), ] 
+completeTraining <- completeTraining %>% mutate(foldIndex = ceiling(row_number() / (nrow(completeTraining) / folds)))
+
+validation <- rep(0, folds)
+threshold <- 0.5
+
+for(i in c(1:folds)){
+  trainingSet <- completeTraining %>% filter(foldIndex != i) %>% dplyr::select(-PassengerId, -foldIndex, -Name, -Parch, -Embarked)
+  testingSet <- completeTraining %>% filter(foldIndex == i) %>% dplyr::select(-PassengerId, -foldIndex, -Name, -Parch, -Embarked)
+  
+  cv_model_rf <- randomForest(x = trainingSet %>% dplyr::select(-Survived), 
+                        y = trainingSet$Survived,
+                        ntree = 700,
+                        mtry = 6,
+                        nodesize = 1,
+                        maxnodes = 10,
+                        importance = TRUE)  
+  
+  result <- 1 * predict(cv_model_rf, testingSet %>% dplyr::select(-Survived), type = 'prob')[, 2] > threshold
+   
+  # Modified for probability threshold
+  validation[i] <- sum((result + 1 == as.numeric(testingSet$Survived))) / length(result)
+}
+importance(cv_model_rf, type = 1)
+#vip(cv_model_rf, bar = FALSE, horizontal = FALSE, size = 1.5)
+mean(validation)
+```
+
+
+# 6. Conclusion
+
+Above all, we chose random forest as the final model with the highest performance evaluation (accuracy = 0.825). Then, to interpret the result of random forest model, we used the partial dependence plot (PDP) to visualize the relationships the model has learned between target features and the response variables.
+
+The partial dependence plot shows how the average prediction in your dataset changes when the j-th feature is changed. 
+
+So, from the following plots of each feature versus the response variabe (survived or not), we find that all kept variables in this model have significant effects on the survival results.
+
+Importantly:
+
+(1) The Pclass (ticket class) PDP shows the negative relationship between the ticket class and the average survival prediction to 1. Also, passengers in with the first class ticket are more likely to survive.
+(2) The title (of passengers) PDP shows that males (with 'Mr' as titles) are less likely to survive, females (with 'Mrs' or 'Miss') are more likely to survive, also, passengers with special titles (eg:'master', 'capital' or 'doc' etc.) have higher probability to be predicted as survived.
+(3) If a passenger paid the ticket for a too low price, his/her suvival probability would be significantly low. If passengers paid more than 50 dollars for their ticket, the survival result won't be different significantly.
+(4) Young passengers who are under 18 years old are more likely to survive.
+(5) Corresponding to the analysis in (2), Sex PDP shows that females have much more probabilities to survive than males.
+(6) SibSp PDP shows that passengers with more than 4 families on board have much lower probabilities to survive.
+
+```{r pdp1, echo = FALSE, fig.align = "center"}
+#partialPlot(cv_model_rf, pred.data = trainingSet, x.var = "Pclass", which.class = 1)
+partial(cv_model_rf, pred.var = c("Pclass"), plot = TRUE, train = trainingSet, type = "classification"
+        , which.class = 2)
+```
+
+```{r pdp2, echo = FALSE, fig.align = "center"}
+partial(cv_model_rf, pred.var = c("title"), plot = TRUE, train = trainingSet, type = "classification"
+        , which.class = 2)
+```
+
+```{r pdp3, echo = FALSE, fig.align = "center"}
+partial(cv_model_rf, pred.var = c("cabinGrp"), plot = TRUE, train = trainingSet, 
+        type = "classification", which.class = 2)
+```
+
+```{r pdp4, echo = FALSE, fig.align = "center"}
+partial(cv_model_rf, pred.var = c("Fare"), plot = TRUE, train = trainingSet, type = "classification"
+        , which.class = 2)
+```
+
+```{r pdp5, echo = FALSE, fig.align = "center"}
+partial(cv_model_rf, pred.var = c("Age"), plot = TRUE, train = trainingSet, type = "classification"
+        , which.class = 2)
+```
+
+```{r pdp6, echo = FALSE, fig.align = "center"}
+partial(cv_model_rf, pred.var = c("Sex"), plot = TRUE, train = trainingSet, type = "classification"
+        , which.class = 2)
+```
+
+```{r pdp7, echo = FALSE, fig.align = "center"}
+partial(cv_model_rf, pred.var = c("SibSp"), plot = TRUE, train = trainingSet, type = "classification"
+        , which.class = 2)
+```
