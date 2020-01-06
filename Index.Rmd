@@ -36,5 +36,7 @@ This website is a repository of my past / ongoing data science projects. They co
 
 2. [Can you survive if you were onboard Titanic? (Shiny)](https://youqilaw.shinyapps.io/titanic/)
 
-3. [xgBoost: New York City Taxi Fare Prediction](Predictive_Model NYC Taxi/NY_Taxi.html).
+3. [xgBoost: New York City Taxi Fare Prediction](Predictive_Model NYC Taxi/NY_Taxi.html).       
+
+4. [Neural Network: MNIST Handwritten Digit Recognition](handWrittenDigit/handwrittenDigit.html).      
 
